@@ -1,0 +1,77 @@
+---
+title: "Term Project"
+output: html_document
+date: "2023-03-21"
+---
+
+Link to data set:
+`https://www.kaggle.com/datasets/ibriiee/video-games-sales-dataset-2022-updated-extra-feat`
+
+```{r}
+library(tidyverse)
+df <- read_csv("C:\\Users\\Matthew Saad\\OneDrive\\College\\Spring 2023\\Data Analytics\\Group Project\\Video_Games.csv")
+
+# Adjusting types
+df$Year_of_Release <- as.numeric(df$Year_of_Release)
+df$User_Score <- as.numeric(df$User_Score)
+
+df
+```
+
+
+## What video game developers/publishers performed well in the most recent year?
+
+Looking at top performing Publishers from the most recent relevant year
+```{r}
+# Arrange descending to see most recent released games
+df %>% arrange(desc(Year_of_Release))
+
+# 2016 is latest year with more than 10 games
+df_top_2016 <- df %>%
+   filter(Year_of_Release == 2016) %>%
+   group_by(Publisher) %>%
+   summarise('Overall Global Sales' = sum(Global_Sales)) %>%
+   arrange(desc(.$`Overall Global Sales`))
+df_top_2016
+
+# Exploring the top 3 publishers of 2016
+df_top3_2016 <- df %>%
+   filter(Year_of_Release == 2016, Publisher %in% unique(head(df_top_2016$Publisher, 3))) %>%
+   arrange(desc(Global_Sales))
+df_top3_2016
+
+# Data frame of how many games each Publisher inside the top 3 Publishers made in 2016
+data.frame(names = unique(df_top3_2016$Publisher),
+           sizes = group_size(group_by(df_top3_2016, Publisher)))
+
+
+## Noticing that many games appear more than once, since they are released on different platforms. 
+# This makes sorting by global_sales difficult. I'm looking to work around this issue in the next step:
+
+# Finding the top 3 games of 2016 from our top performing publishers
+df_top3_2016 %>%
+   select(Name, Publisher, Global_Sales, Critic_Score) %>%
+   group_by(Name, Publisher) %>%
+   summarise("Global_Sales" = sum(Global_Sales),
+             "Critic_Score" = mean(Critic_Score, na.rm = T)) %>% # interesting that critic_score still NaN in some instances
+   arrange(desc(Global_Sales))
+```
+
+
+
+# Is there any correlation between critic scores and total sales?
+
+# Is there any correlation between user ratings and total sales?
+
+```{r}
+# We will work on doing something with NA values later. For now, just removing them. (Cut off about 60%)
+cor_data <- df %>%
+   select(where(is.numeric)) %>%
+   na.omit()
+
+full_cor <- as.data.frame(round(cor(cor_data), 3))
+
+full_cor %>%
+   select(Global_Sales) %>%
+   filter(row.names(full_cor) %in% c("Critic_Score", "User_Score"))
+```
