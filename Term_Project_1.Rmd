@@ -1,0 +1,176 @@
+---
+title: "Term Project"
+output:
+  html_document: default
+  pdf_document: default
+date: "2023-03-21"
+---
+
+Link to data set: `https://www.kaggle.com/datasets/ibriiee/video-games-sales-dataset-2022-updated-extra-feat`
+
+```{r}
+library(tidyverse)
+df <- read_csv("Video_Games.csv")
+
+# Adjusting types
+df$Year_of_Release <- as.numeric(df$Year_of_Release)
+df$User_Score <- as.numeric(df$User_Score)
+
+df
+```
+
+## What are the data types for each attribute?
+
+View data type for each attribute
+```{r}
+glimpse(df)
+```
+
+## What are the null values?
+
+Find number of NA for each attribute
+
+```{r}
+missing_values_df <- tibble(variables = names(df))
+temp <- list()
+for (x in names(df)) {
+  temp <- append(temp, count(filter(df, is.na(df[[x]]))))
+}
+missing_values_df <- mutate(missing_values_df, missing = temp)
+missing_values_df <- mutate(missing_values_df, missing = as.numeric(as.character(missing)))
+missing_values_df
+```
+
+Visualize missing data
+
+```{r}
+ggplot(data = missing_values_df) + geom_bar(mapping = aes(x = variables, y = missing), stat = "identity")
+```
+
+## How are we going to handle the large amount of missing values?
+
+There’s no way to impute the missing data from the current data
+Remove the missing data
+
+```{r}
+df <- df %>% 
+      select("Name", "Platform", "Year_of_Release", "Genre", "Publisher", "NA_Sales", "EU_Sales", "JP_Sales", "Other_Sales", "Global_Sales") %>%
+      filter(!(is.na(Name) | is.na(Year_of_Release) | is.na(Genre)))
+df
+```
+
+## What are the sales outliers?
+
+Visualize outliers
+
+```{r}
+x1 <- df$EU_Sales
+x2 <- df$NA_Sales
+x3 <- df$JP_Sales
+x4 <- df$Other_Sales
+boxplot(x1, x2, x3, x4, names=c("EU_Sales", "NA_Sales", "JP_Sales", "Other_Sales"))
+```
+
+## How to handle sales outliers?
+
+In this video game dataset, the outliers are not considered a hindrance to the data. Looking at the example when comparing the sales of video games from different companies in different countries, the outliers were just games that happened to sell drastically high. This data value is reasonable because even though it is widely outside the range of the interquartile range of the boxplot, the outlier still has significance. Any data outlier that can still be of use in representing an analytical basis should not be altered or removed.
+
+## What is the variation for attributes?
+
+Find variation
+
+```{r}
+temp <- df %>% select_if(is.numeric)
+temp2 <- list()
+variation_df <- tibble(variables = names(temp))
+for (x in names(temp)) {
+  temp2 <- append(temp2, min(temp[[x]], na.rm = TRUE))
+}
+variation_df <- mutate(variation_df, min = temp2)
+temp2 <- list()
+for (x in names(temp)) {
+  temp2 <- append(temp2, max(temp[[x]], na.rm = TRUE))
+}
+variation_df <- mutate(variation_df, max = temp2)
+variation_df <- mutate(variation_df, min = as.numeric(min))
+variation_df <- mutate(variation_df, max = as.numeric(max))
+variation_df <- mutate(variation_df, difference = variation_df$max - variation_df$min)
+variation_df
+
+```
+
+## What are the co variations between attributes?
+
+Show co variation between publisher and genre
+
+```{r}
+data <- df %>% filter(Publisher == c("Nintendo", "Electronic Arts", "Sega", "Ubisoft")) %>% na.omit()
+ggplot(data, aes(x = Genre, y = Publisher)) + geom_count(na.rm=TRUE)
+
+```
+
+## What video game developers/publishers performed well in the most recent year?
+
+Looking at top performing Publishers from the most recent relevant year
+
+```{r}
+# Arrange descending to see most recent released games
+df %>% arrange(desc(Year_of_Release))
+
+# 2016 is latest year with more than 10 games
+df_top_2016 <- df %>%
+   filter(Year_of_Release == 2016) %>%
+   group_by(Publisher) %>%
+   summarise('Overall Global Sales' = sum(Global_Sales)) %>%
+   arrange(desc(.$`Overall Global Sales`))
+df_top_2016
+
+# Exploring the top 3 publishers of 2016
+df_top3_2016 <- df %>%
+   filter(Year_of_Release == 2016, Publisher %in% unique(head(df_top_2016$Publisher, 3))) %>%
+   arrange(desc(Global_Sales))
+df_top3_2016
+
+# Data frame of how many games each Publisher inside the top 3 Publishers made in 2016
+data.frame(names = unique(df_top3_2016$Publisher),
+           sizes = group_size(group_by(df_top3_2016, Publisher)))
+
+```
+
+***
+
+## Looking for ways to deal with missing values
+
+Many of the attributes in our data contain an excess of missing values. One of the ways to combat this is through imputation. We were curious about trying to impute missing values via a multiple linear regression model using the few attributes which did not contain missing values. This ended up being Genre, NA_Sales, EU_Sales, JP_Sales, Other_Sales, and Global_Sales. 
+
+      Critic Scores
+Critic score is an attribute we were curious about analyzing, of course, the Score a game receives from critics is important to users who end up purchasing games. Naturally then, it seemed like the Sales data we had might point us in the right direction for Critic Scores. While this might seem like the case, it didn't end up being the case. Below, we try to impute the missing data with a linear regression model. Unfortunately the model only ended up with an R-sq value < 10%, indicating a weak relationship, at best.
+
+```{r}
+df_train <- df %>% 
+   select(Genre, NA_Sales, EU_Sales, JP_Sales, Other_Sales, Global_Sales, Critic_Score) %>%
+   na.omit()
+
+df_scoreThis <- df %>%
+   filter(is.na(Critic_Score)) %>%
+   select(Platform, Genre, Publisher, NA_Sales, EU_Sales, JP_Sales, Other_Sales, Global_Sales)
+   
+
+model <- lm(Critic_Score ~ ., data = df_train)
+
+predictions <- predict(model, df_scoreThis)
+
+df_noNA <- df %>% filter(!is.na(Critic_Score))
+df_NAs <- df %>% filter(is.na(Critic_Score))
+
+# Fill in with predictions
+df_NAs <- df_NAs %>%
+   mutate(Critic_Score = predictions)
+
+df_filled <- bind_rows(df_NAs, df_noNA)
+df_filled
+
+summary(model)
+```
+
+
