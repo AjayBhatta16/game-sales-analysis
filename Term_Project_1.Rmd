@@ -49,6 +49,40 @@ ggplot(data = missing_values_df) + geom_bar(mapping = aes(x = variables, y = mis
 
 ## How are we going to handle the large amount of missing values?
 
+## Looking for ways to deal with missing values
+
+Many of the attributes in our data contain an excess of missing values. One of the ways to combat this is through imputation. We were curious about trying to impute missing values via a multiple linear regression model using the few attributes which did not contain missing values. This ended up being Genre, NA_Sales, EU_Sales, JP_Sales, Other_Sales, and Global_Sales. 
+
+      Critic Scores
+Critic score is an attribute we were curious about analyzing, of course, the Score a game receives from critics is important to users who end up purchasing games. Naturally then, it seemed like the Sales data we had might point us in the right direction for Critic Scores. While this might seem like the case, it didn't end up being the case. Below, we try to impute the missing data with a linear regression model. Unfortunately the model only ended up with an R-sq value < 10%, indicating a weak relationship, at best.
+
+```{r}
+df_train <- df %>% 
+   select(Genre, NA_Sales, EU_Sales, JP_Sales, Other_Sales, Global_Sales, Critic_Score) %>%
+   na.omit()
+
+df_scoreThis <- df %>%
+   filter(is.na(Critic_Score)) %>%
+   select(Platform, Genre, Publisher, NA_Sales, EU_Sales, JP_Sales, Other_Sales, Global_Sales)
+   
+
+model <- lm(Critic_Score ~ ., data = df_train)
+
+predictions <- predict(model, df_scoreThis)
+
+df_noNA <- df %>% filter(!is.na(Critic_Score))
+df_NAs <- df %>% filter(is.na(Critic_Score))
+
+# Fill in with predictions
+df_NAs <- df_NAs %>%
+   mutate(Critic_Score = predictions)
+
+df_filled <- bind_rows(df_NAs, df_noNA)
+df_filled
+
+summary(model)
+```
+
 There’s no way to impute the missing data from the current data
 Remove the missing data
 
@@ -99,15 +133,36 @@ variation_df
 
 ```
 
-## What are the co variations between attributes?
+## What are the covariations between attributes?
 
-Show co variation between publisher and genre
+Show covariation between publisher and genre
 
 ```{r}
 data <- df %>% filter(Publisher == c("Nintendo", "Electronic Arts", "Sega", "Ubisoft")) %>% na.omit()
 ggplot(data, aes(x = Genre, y = Publisher)) + geom_count(na.rm=TRUE)
 
 ```
+
+## Is there any covariation between publisher and sales location?
+
+Sales for some notable publishers in NA.
+
+```{r}
+ggplot(data, aes(x = Publisher, y = NA_Sales)) + geom_col() 
+```
+
+Sales for publishers in EU.
+
+```{r}
+ggplot(data, aes(x = Publisher, y = EU_Sales)) + geom_col() 
+```
+
+Sales for publishers in JP.
+
+```{r}
+ggplot(data, aes(x = Publisher, y = JP_Sales)) + geom_col() 
+```
+
 
 ## What video game developers/publishers performed well in the most recent year?
 
@@ -137,40 +192,5 @@ data.frame(names = unique(df_top3_2016$Publisher),
 
 ```
 
-***
-
-## Looking for ways to deal with missing values
-
-Many of the attributes in our data contain an excess of missing values. One of the ways to combat this is through imputation. We were curious about trying to impute missing values via a multiple linear regression model using the few attributes which did not contain missing values. This ended up being Genre, NA_Sales, EU_Sales, JP_Sales, Other_Sales, and Global_Sales. 
-
-      Critic Scores
-Critic score is an attribute we were curious about analyzing, of course, the Score a game receives from critics is important to users who end up purchasing games. Naturally then, it seemed like the Sales data we had might point us in the right direction for Critic Scores. While this might seem like the case, it didn't end up being the case. Below, we try to impute the missing data with a linear regression model. Unfortunately the model only ended up with an R-sq value < 10%, indicating a weak relationship, at best.
-
-```{r}
-df_train <- df %>% 
-   select(Genre, NA_Sales, EU_Sales, JP_Sales, Other_Sales, Global_Sales, Critic_Score) %>%
-   na.omit()
-
-df_scoreThis <- df %>%
-   filter(is.na(Critic_Score)) %>%
-   select(Platform, Genre, Publisher, NA_Sales, EU_Sales, JP_Sales, Other_Sales, Global_Sales)
-   
-
-model <- lm(Critic_Score ~ ., data = df_train)
-
-predictions <- predict(model, df_scoreThis)
-
-df_noNA <- df %>% filter(!is.na(Critic_Score))
-df_NAs <- df %>% filter(is.na(Critic_Score))
-
-# Fill in with predictions
-df_NAs <- df_NAs %>%
-   mutate(Critic_Score = predictions)
-
-df_filled <- bind_rows(df_NAs, df_noNA)
-df_filled
-
-summary(model)
-```
 
 
