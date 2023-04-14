@@ -83,13 +83,12 @@ df_filled
 summary(model)
 ```
 
-There’s no way to impute the missing data from the current data
+There’s no way to impute the missing data from the current data.
 Remove the missing data
 
 ```{r}
-df <- df %>% 
-      select("Name", "Platform", "Year_of_Release", "Genre", "Publisher", "NA_Sales", "EU_Sales", "JP_Sales", "Other_Sales", "Global_Sales") %>%
-      filter(!(is.na(Name) | is.na(Year_of_Release) | is.na(Genre)))
+df <- df %>% filter(!(is.na(Name) | is.na(Year_of_Release) | is.na(Genre) | is.na(Critic_Score)  | is.na(Critic_Count)
+                       | is.na(User_Score) | is.na(User_Count) | is.na(Developer) | is.na(Rating)))
 df
 ```
 
