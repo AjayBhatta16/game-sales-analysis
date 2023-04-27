@@ -1,0 +1,297 @@
+---
+title: "Term Project"
+output:
+  html_document: default
+  pdf_document: default
+date: "2023-03-21"
+---
+
+      Outline:
+
+1.  Loading in the data set and doing some broad exploratory analysis
+2.  Explore the data set further. Identify outliers and what approaches we have to deal with them.
+3.  Tidy the data set - normalization, significance testing, etc.
+4.  Modeling various elements
+5.  Conclusions
+
+Where do we put the graphs?
+
+# 1. Loading data & exploratory analysis
+
+We chose this data set because `need info here`.
+
+Link to data set: `https://www.kaggle.com/datasets/ibriiee/video-games-sales-dataset-2022-updated-extra-feat`
+
+```{r message=FALSE}
+library(tidyverse)
+library(tidymodels)
+
+df <- read_csv("Video_Games.csv")
+df
+```
+
+## What are the data types for each attribute?
+
+View data type for each attribute
+
+```{r}
+glimpse(df)
+```
+
+Immediately we see some variables which deserve to have their type changed
+
+```{r warning=FALSE}
+# Adjusting types to make most sense
+df <- df %>%
+   mutate(Year_of_Release = as.numeric(Year_of_Release),
+          User_Score = as.numeric(User_Score),
+          Rating = factor(Rating), # should we introduce levels? There is an ordering to Rating...
+          Platform = factor(Platform),
+          Genre = factor(Genre),
+          Publisher = factor(Publisher),
+          Developer = factor(Developer),
+          Name = factor(Name))
+```
+
+## Understanding the Null/NA values
+
+Find number of NA for each attribute
+
+```{r eval = FALSE}
+missing_values_df <- tibble(variables = names(df))
+temp <- list()
+for (x in names(df)) {
+  temp <- append(temp, count(filter(df, is.na(df[[x]]))))
+}
+missing_values_df <- mutate(missing_values_df, missing = as.numeric(as.character(temp)))
+missing_values_df
+```
+
+Note: If it seems like something is done a lot in R, you probably don't need to do it manually :)
+
+```{r}
+missing_values_df <- data.frame(Missing = colSums(is.na(df)))
+missing_values_df
+```
+
+Visualize missing data
+
+```{r}
+ggplot(data = missing_values_df) + 
+   geom_bar(aes(x = Missing, y = row.names(missing_values_df)), stat = "identity") +
+   labs(title = "Number of NA values per attribute", y = "Variable")
+```
+
+## How are we going to handle the large amount of missing values?
+
+### Imputation
+
+Many of the attributes in our data contain an excess of missing values. One of the ways to combat this is through imputation. We were curious about trying to impute missing values via a multiple linear regression model using the few attributes which did not contain missing values. This ended up including Genre, Platform, Publisher, Year_of_Release, and all the Sales data (the variables which don't have many, if any, missing values from above).
+
+This little block is a generalization of fitting a past iteration of fitting a linear model to Critic_Score. Here, we are fitting a linear model to each of the largely missing variables, and returning their adjusted r-sq value. The idea is to spot any relationships that could have been in the data to try and impute these missing values. It is important to notice that this does not utilize any sort of "test data" to see its accuracy, as it only returns the adjusted adj. r-sq value of the data.
+
+```{r}
+fitVars <- function(name) {
+   vars <- c("Genre", "Platform", "Publisher", "Year_of_Release")
+   
+   df_train <- df %>% 
+      select(contains("Sales"), all_of(vars), name) %>%
+      na.omit()
+   
+   score <- df_train %>%
+      select(name) %>%
+      unlist()
+   
+   df_train <- df_train %>%
+      select(-name)
+   
+   rsqprct <- round(summary(lm(score ~ ., data = df_train))$adj.r.squared * 100, 2)
+   list(Name = name, 'Adj Rsq' = rsqprct)
+}
+
+tryVars <- c("Critic_Score", "User_Score", "User_Count", "Critic_Score", "Critic_Count")
+
+map_dfr(tryVars, fitVars)
+```
+
+*SEE*
+# SHOULD WE USE THESE ANYWAY? Question for next week!!
+
+      Critic Scores
+
+Critic score is an attribute we were curious about analyzing, of course, the Score a game receives from critics is important to users who end up purchasing games. Naturally then, it seemed like the Sales data we had might point us in the right direction for Critic Scores. While this might seem like the case, our linear regression model returned an adjusted R-sq value of only 25.69%.
+
+      User Score
+
+Similar to critic score, it is a very important attribute. Our linear model only returned an adjusted R-sq of 18.24% though.
+
+### Removing NA values
+
+Based on our results from the last question, it could be best to instead of trying to impute the missing values, to instead just remove them. In this step that is what we aim to do. Unfortunately this drastically decreases the size of our data set. In this step, our data set goes from ~16,000 observations to ~7,000 (over half removed).
+
+```{r}
+# To do, or to not to do
+df <- na.omit(df)
+df
+```
+
+## What are the outliers?
+
+Visualize the outliers in sales
+
+```{r}
+boxplot(df$EU_Sales, 
+        df$NA_Sales, 
+        df$JP_Sales, 
+        df$Other_Sales, 
+        df$Global_Sales, 
+        names=c("EU_Sales", "NA_Sales", "JP_Sales", "Other_Sales", "Global_Sales"))
+```
+
+Like the box plots above imply, there are clearly many outliers in each of these categories. We need to choose what to do with these outliers, be it to remove them, keep them, or something in-between.
+
+############ 
+
+--------- I think we could use more visualization here of outliers ---------
+
+## How to handle sales outliers?
+
+In this video game data set, the outliers are not considered a hindrance to the data. Looking at the example when comparing the sales of video games from different companies in different countries, the outliers were just games that happened to sell drastically high. This data value is reasonable because even though it is widely outside the range of the interquartile range of the box plot, the outlier still has significance. Any data outlier that can still be of use in representing an analytical basis should not be altered or removed.
+
+***This is not necessarily the correct conclusion here. We handle outliers based on how well it will meet our use case. If we are in the business of fitting models, we only want to keep outliers if they do not make the model worse.***
+
+## What is the variation for attributes?
+
+Find variation
+
+```{r}
+temp <- df %>% select_if(is.numeric)
+temp2 <- list()
+variation_df <- tibble(variables = names(temp))
+for (x in names(temp)) {
+  temp2 <- append(temp2, min(temp[[x]], na.rm = TRUE))
+}
+variation_df <- mutate(variation_df, min = temp2)
+temp2 <- list()
+for (x in names(temp)) {
+  temp2 <- append(temp2, max(temp[[x]], na.rm = TRUE))
+}
+variation_df <- mutate(variation_df, 
+                       max = temp2,
+                       min = as.numeric(min),
+                       max = as.numeric(max),
+                       range = max - min)
+variation_df
+```
+
+
+## What are the covariations between attributes?
+
+**This needs to be thought through more. If we are looking at covariation between attributes generally, why exactly are we filtering publisher to only 4, of 262 [given by `length(unique(df$Publisher))`] different publishers? That defeats the purpose of checking for covariation.**
+
+Show covariation between publisher and genre
+
+```{r}
+data <- df %>% filter(Publisher %in% c("Nintendo", "Electronic Arts", "Sega", "Ubisoft")) %>% na.omit()
+ggplot(data, aes(x = Genre, y = Publisher)) + 
+   geom_count()
+```
+
+## Is there any covariation between publisher and sales location?
+
+Sales for some notable publishers in NA.
+
+```{r}
+ggplot(data, aes(x = Publisher, y = NA_Sales)) + geom_col() 
+```
+
+Sales for publishers in EU.
+
+```{r}
+ggplot(data, aes(x = Publisher, y = EU_Sales)) + geom_col() 
+```
+
+Sales for publishers in JP.
+
+```{r}
+ggplot(data, aes(x = Publisher, y = JP_Sales)) + geom_col() 
+```
+
+## What video game developers/publishers performed well in the most recent year?
+
+Looking at top performing Publishers from the most recent relevant year
+
+```{r}
+# Arrange descending to see most recent released games
+df %>% arrange(desc(Year_of_Release))
+
+# 2016 is latest year with more than 10 games
+df_top_2016 <- df %>%
+   filter(Year_of_Release == 2016) %>%
+   group_by(Publisher) %>%
+   summarise('Overall Global Sales' = sum(Global_Sales)) %>%
+   arrange(desc(.$`Overall Global Sales`))
+df_top_2016
+
+# Exploring the top 3 publishers of 2016
+df_top3_2016 <- df %>%
+   filter(Year_of_Release == 2016, Publisher %in% unique(head(df_top_2016$Publisher, 3))) %>%
+   arrange(desc(Global_Sales))
+df_top3_2016
+
+# Data frame of how many games each Publisher inside the top 3 Publishers made in 2016
+data.frame(names = unique(df_top3_2016$Publisher),
+           sizes = group_size(group_by(df_top3_2016, Publisher)))
+```
+
+# Preprocessing for Models
+
+## Normalization/Encoding/Selecting Vars
+
+There are 3 steps to this part:
+
+   1. Selecting off variables we don't want to include in our model. This is primarily made up
+      attributes unique to each observation (Name), and categorical variables with an excess of 
+      categories (Publisher has 581, and Developer has 1696). We may come back to this step after
+      modeling to decide whether we want to include Publisher/Developer or not.
+   2. Normalizing continuous data. We use `scale()` to do this.
+   3. Encoding categorical data. We use `unclass()` to do this, since categoricals are already factored.
+
+```{r}
+df <- df %>%
+   select(-Name, -Publisher, -Developer) %>%
+   mutate_if(is.numeric, ~(scale(.) %>% as.vector)) %>%
+   mutate_if(is.factor, ~unclass(.))
+```
+
+
+# Modeling
+
+
+## Train/test split
+
+Here is code to get train/test split
+
+```{r}
+set.seed(2)
+df_split <- initial_split(df, prop = 0.8)
+
+train <- training(df_split)
+test <- testing(df_split)
+```
+
+## Model #1
+
+**models here**
+
+***
+
+```{r}
+
+```
+
+
+
+
+
+
