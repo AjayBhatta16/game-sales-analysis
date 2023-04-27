@@ -287,7 +287,66 @@ test <- testing(df_split)
 ***
 
 ```{r}
+library(caret)
+df2 <- df %>% select(-"Name", -"Global_Sales")
+set.seed(123)
+training.samples <- df2$JP_Sales %>%
+  createDataPartition(p = 0.2, list = FALSE)
+train.data <- df2[training.samples,]
+test.data <- df2[-training.samples,]
+test.data <- test.data %>% filter(Platform %in% unique(train.data$Platform) & Publisher %in% unique(train.data$Publisher)) 
 
+model.JP <- train(
+  JP_Sales ~., data = train.data, method="svmRadial",
+  trControl = trainControl("cv", number = 10),
+  preProcess = c("center", "scale"),
+  tuneLength = 5
+)
+model.JP$bestTune
+predicted.classes.JP <- model.JP %>% predict(test.data)
+margin_of_error.JP <- abs(predicted.classes.JP - test.data$JP_Sales)
+mean(margin_of_error.JP)
+mean(test.data$JP_Sales)
+mean(predicted.classes.JP)
+mean(margin_of_error.JP)/mean(test.data$JP_Sales)
+
+model.EU <- train(
+  EU_Sales ~., data = train.data, method="svmRadial",
+  trControl = trainControl("cv", number = 10),
+  preProcess =  c("center", "scale"),
+  tuneLength = 5
+)
+model.EU$bestTune
+predicted.classes.EU <- model.EU %>% predict(test.data)
+margin_of_error.EU <- abs(predicted.classes.EU - test.data$EU_Sales)
+mean(margin_of_error.EU)
+mean(test.data$EU_Sales)
+mean(predicted.classes.EU)
+mean(margin_of_error.EU)/mean(test.data$EU_Sales)
+
+model.NA <- train(
+  NA_Sales ~., data = train.data, method="svmRadial",
+  trControl = trainControl("cv", number = 10),
+  preProcess = c("center", "scale"),
+  tuneLength = 5
+)
+model.NA$bestTune
+predicted.classes.NA <- model.NA %>% predict(test.data)
+margin_of_error.NA <- abs(predicted.classes.NA - test.data$NA_Sales)
+mean(margin_of_error.NA)/mean(test.data$NA_Sales)
+
+model.other <- train(
+  Other_Sales ~., data = train.data, method="svmRadial",
+  trControl = trainControl("cv", number = 10),
+  preProcess = c("center", "scale"),
+  tuneLength = 5
+)
+model.other$bestTune
+predicted.classes.other <- model.other %>% predict(test.data)
+margin_of_error.other <- abs(predicted.classes.other - test.data$Other_Sales)
+mean(margin_of_error.other)
+
+boxplot(margin_of_error.JP, margin_of_error.EU, margin_of_error.NA, margin_of_error.other, names=c("JP", "EU", "NA", "other"))
 ```
 
 
