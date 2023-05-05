@@ -1,0 +1,597 @@
+---
+title: "Term Project"
+output:
+  html_document: default
+  pdf_document: default
+date: "2023-03-21"
+---
+
+      Outline:
+
+1.  Loading in the data set and doing some broad exploratory analysis
+2.  Explore the data set further. Identify outliers and what approaches we have to deal with them.
+3.  Tidy the data set - normalization, significance testing, etc.
+4.  Modeling various elements
+5.  Conclusions
+
+# Abstract
+
+
+
+# Introduction
+
+put the introduction here
+
+
+
+
+# 1. Loading data & exploratory analysis
+
+We chose this data set because `need info here`.
+
+Link to data set: `https://www.kaggle.com/datasets/ibriiee/video-games-sales-dataset-2022-updated-extra-feat`
+
+```{r message=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(randomForest)
+library(caret)
+
+df <- read_csv("Video_Games.csv")
+df
+```
+
+## What are the data types for each attribute?
+
+View data type for each attribute
+
+```{r}
+glimpse(df)
+```
+
+Immediately we see some variables which need to have their type changed
+
+```{r warning=FALSE}
+# Adjusting types to make most sense
+df <- df %>%
+   mutate(Year_of_Release = as.numeric(Year_of_Release),
+          User_Score = as.numeric(User_Score),
+          Rating = factor(Rating), # should we introduce levels? There is an ordering to Rating...
+          Platform = factor(Platform),
+          Genre = factor(Genre),
+          Publisher = factor(Publisher),
+          Developer = factor(Developer),
+          Name = factor(Name))
+```
+
+## Understanding the Null/NA values
+
+Find number of NA for each attribute
+
+```{r}
+missing_values_df <- tibble(variables = names(df))
+temp <- list()
+for (x in names(df)) {
+  temp <- append(temp, count(filter(df, is.na(df[[x]]))))
+}
+missing_values_df <- mutate(missing_values_df, missing = as.numeric(as.character(temp)))
+missing_values_df
+```
+
+Visualize missing data
+
+```{r}
+ggplot(data = missing_values_df) + 
+  geom_bar(mapping = aes(x = missing, y = variables), stat = "identity")
+```
+
+## How are we going to handle the large amount of missing values?
+
+### Imputation
+
+Many of the attributes in our data contain an excess of missing values. One of the ways to combat this is through imputation. We were curious about trying to impute missing values via a multiple linear regression model using the few attributes which did not contain missing values. This ended up including Genre, Platform, Publisher, Year_of_Release, and all the Sales data (the variables which don't have many, if any, missing values from above).
+
+This little block is a generalization of fitting a past iteration of fitting a linear model to Critic_Score. Here, we are fitting a linear model to each of the largely missing variables, and returning their adjusted r-sq value. The idea is to spot any relationships that could have been in the data to try and impute these missing values. It is important to notice that this does not utilize any sort of "test data" to see its accuracy, as it only returns the adjusted adj. r-sq value of the data.
+
+```{r message=FALSE, warning=FALSE}
+fitVars <- function(name) {
+   vars <- c("Genre", "Platform", "Publisher", "Year_of_Release")
+   
+   df_train <- df %>% 
+      select(contains("Sales"), all_of(vars), name) %>%
+      na.omit()
+   
+   score <- df_train %>%
+      select(name) %>%
+      unlist()
+   
+   df_train <- df_train %>%
+      select(-name)
+   
+   rsqprct <- round(summary(lm(score ~ ., data = df_train))$adj.r.squared * 100, 2)
+   list(Name = name, 'Adj Rsq' = rsqprct)
+}
+
+tryVars <- c("Critic_Score", "User_Score", "User_Count", "Critic_Score", "Critic_Count")
+
+map_dfr(tryVars, fitVars)
+```
+
+*SEE*
+# SHOULD WE USE THESE ANYWAY? Question for next week!!
+
+      Critic Scores
+
+Critic score is an attribute we were curious about analyzing, of course, the Score a game receives from critics is important to users who end up purchasing games. Naturally then, it seemed like the Sales data we had might point us in the right direction for Critic Scores. While this might seem like the case, our linear regression model returned an adjusted R-sq value of only 25.69%.
+
+      User Score
+
+Similar to critic score, it is a very important attribute. Our linear model only returned an adjusted R-sq of 18.24% though.
+
+### Removing NA values
+
+Based on our results from the last question, it could be best to instead of trying to impute the missing values, to instead just remove them. In this step that is what we aim to do. Unfortunately this drastically decreases the size of our data set. In this step, our data set goes from ~16,000 observations to ~7,000 (over half removed).
+
+```{r}
+# To do, or to not to do
+df <- na.omit(df)
+df
+```
+
+## What are the outliers?
+
+Visualize the outliers in sales
+
+```{r}
+boxplot(df$EU_Sales, 
+        df$NA_Sales, 
+        df$JP_Sales, 
+        df$Other_Sales, 
+        df$Global_Sales, 
+        names=c("EU_Sales", "NA_Sales", "JP_Sales", "Other_Sales", "Global_Sales"))
+```
+
+Like the box plots above imply, there are clearly many outliers in each of these categories. We need to choose what to do with these outliers, be it to remove them, keep them, or something in-between.
+
+############ 
+
+--------- I think we could use more visualization here of outliers ---------
+
+## How to handle sales outliers?
+
+In this video game data set, the outliers are not considered a hindrance to the data. Looking at the example when comparing the sales of video games from different companies in different countries, the outliers were just games that happened to sell drastically high. This data value is reasonable because even though it is widely outside the range of the interquartile range of the box plot, the outlier still has significance. Any data outlier that can still be of use in representing an analytical basis should not be altered or removed.
+
+***This is not necessarily the correct conclusion here. We handle outliers based on how well it will meet our use case. If we are in the business of fitting models, we only want to keep outliers if they do not make the model worse.***
+
+## What is the variation for attributes?
+
+Find variation
+
+```{r}
+temp <- df %>% select_if(is.numeric)
+temp2 <- list()
+variation_df <- tibble(variables = names(temp))
+for (x in names(temp)) {
+  temp2 <- append(temp2, min(temp[[x]], na.rm = TRUE))
+}
+variation_df <- mutate(variation_df, min = temp2)
+temp2 <- list()
+for (x in names(temp)) {
+  temp2 <- append(temp2, max(temp[[x]], na.rm = TRUE))
+}
+variation_df <- mutate(variation_df, 
+                       max = temp2,
+                       min = as.numeric(min),
+                       max = as.numeric(max),
+                       range = max - min)
+variation_df
+```
+
+
+## What are the covariations between attributes?
+
+**This needs to be thought through more. If we are looking at covariation between attributes generally, why exactly are we filtering publisher to only 4, of 262 [given by `length(unique(df$Publisher))`] different publishers? That defeats the purpose of checking for covariation.**
+
+Show covariation between publisher and genre
+
+```{r}
+data <- df %>% filter(Publisher %in% c("Nintendo", "Electronic Arts", "Sega", "Ubisoft")) %>% na.omit()
+ggplot(data, aes(x = Genre, y = Publisher)) + 
+   geom_count()
+```
+
+
+
+Correlations in general:
+```{r}
+data.frame(round(cor(select_if(df, is.numeric)), 4))
+```
+
+
+```{r}
+plot_data <- df %>% na.omit()
+
+ggplot(plot_data) +
+  geom_point(aes(x = Global_Sales, y = Genre)) +
+  labs(title = "Sales By Genre")
+```
+
+```{r}
+ggplot(plot_data) +
+  geom_boxplot(aes(x = Critic_Score, y = Genre)) +
+  labs(title = "Critic Score By Genre")
+```
+
+
+```{r}
+ggplot(plot_data, aes(x = "", y = Global_Sales, fill = Platform)) +
+  geom_bar(stat = "identity", width = 1)
+```
+
+```{r}
+na <- plot_data %>%
+  group_by(Year_of_Release) %>%
+  summarise(avgNA = mean(NA_Sales),
+            avgEU = mean(EU_Sales),
+            avgJP = mean(JP_Sales),
+            avgOT = mean(Other_Sales)) %>%
+  filter(Year_of_Release > 1990)
+
+edgelist <- data.frame(
+  Year_of_Release = rep(na$Year_of_Release, 4),
+  Sales = c(na$avgNA, na$avgEU, na$avgJP, na$avgOT),
+  Region = c(rep("North America", 23), 
+             rep("Europe", 23), 
+             rep("Japan", 23), 
+             rep("Other", 23))
+)
+
+ggplot(edgelist, aes(x = Year_of_Release)) +
+  geom_line(aes(y = Sales, group = Region, color = Region)) +
+  labs(title = "Sales Per Region Per Year",
+       xlab = "Year of Release", ylab = "Sales")
+```
+
+
+## What video game developers/publishers performed well in the most recent year?
+
+Looking at top performing Publishers from the most recent relevant year
+
+```{r}
+# Arrange descending to see most recent released games
+# df %>% arrange(desc(Year_of_Release))
+
+# 2016 is latest year with more than 10 games
+df_top_2016 <- df %>%
+   filter(Year_of_Release == 2016) %>%
+   group_by(Publisher) %>%
+   summarise('Overall Global Sales' = sum(Global_Sales)) %>%
+   arrange(desc(.$`Overall Global Sales`))
+df_top_2016
+
+# Exploring the top 3 publishers of 2016
+df_top3_2016 <- df %>%
+   filter(Year_of_Release == 2016, Publisher %in% unique(head(df_top_2016$Publisher, 3))) %>%
+   arrange(desc(Global_Sales))
+
+# Data frame of how many games each Publisher inside the top 3 Publishers made in 2016
+data.frame(names = unique(df_top3_2016$Publisher),
+           'number of games' = group_size(group_by(df_top3_2016, Publisher)))
+```
+
+# Preprocessing for Models
+
+## Normalization/Encoding/Selecting Vars
+
+There are 3 steps to this part:
+
+   1. Selecting off variables we don't want to include in our model. This is primarily made up attributes unique to each observation (Name), and categorical variables with an excess of  categories (Developer has 1696, for instance)
+   2. Normalizing continuous data. We use `scale()` to do this.
+
+```{r}
+df <- df %>%
+   select(-Name, -Publisher, -Developer) %>%
+   mutate_if(is.numeric, ~(scale(.) %>% as.vector))
+df
+```
+
+
+# Modeling
+
+
+## Train/test split
+
+Here is code to get train/test split
+
+```{r}
+set.seed(2)
+df_split <- initial_split(df, prop = 0.8)
+
+train <- training(df_split)
+test <- testing(df_split)
+```
+
+
+    Random Forest Year of Relase
+
+```{r message=FALSE, warning=FALSE}
+randForest <- randomForest(Year_of_Release ~ ., data = train)
+randForest
+```
+
+```{r}
+varImp(randForest)
+```
+
+
+
+      Using SVM on the Sales Data
+
+```{r message=FALSE, warning=FALSE}
+df2 <- read_csv("Video_Games.csv") %>%
+  mutate(Year_of_Release = as.numeric(Year_of_Release),
+         User_Score = as.numeric(User_Score)) %>% 
+  select(-tail(names(.),6)) %>%
+  na.omit() %>%
+  select(-"Name", -"Global_Sales")
+
+set.seed(123)
+
+training.samples <- df2$JP_Sales %>%
+  createDataPartition(p = 0.2, list = FALSE)
+
+train.data <- df2[training.samples,]
+test.data <- df2[-training.samples,]
+test.data <- test.data %>% filter(Platform %in% unique(train.data$Platform) & Publisher %in% unique(train.data$Publisher)) 
+```
+
+
+
+### Japan Sales
+
+Radial
+```{r message=FALSE, warning=FALSE}
+model.JP.Radial <- train(
+  JP_Sales ~., data = train.data, method="svmRadial",
+  trControl = trainControl("cv", number = 4),
+  preProcess = c("center", "scale"),
+  tuneLength = 5
+)
+predicted.classes.JP.Radial <- model.JP.Radial %>% predict(test.data)
+RSE.JP.Radial <- mean(sqrt((predicted.classes.JP.Radial - test.data$JP_Sales)^2))
+```
+
+Linear
+```{r message=FALSE, warning=FALSE}
+model.JP.Linear <- train(
+  JP_Sales ~., data = train.data, method="svmLinear",
+  trControl = trainControl("cv", number = 4),
+  preProcess = c("center", "scale"),
+  tuneLength = 5
+)
+predicted.classes.JP.Linear <- model.JP.Linear %>% predict(test.data)
+RSE.JP.Linear <- mean(sqrt((predicted.classes.JP.Linear - test.data$JP_Sales)^2))
+```
+
+
+
+### Europe Sales
+
+Radial
+```{r message=FALSE, warning=FALSE}
+model.EU.Radial <- train(
+  EU_Sales ~., data = train.data, method="svmRadial",
+  trControl = trainControl("cv", number = 4),
+  preProcess = c("center", "scale"),
+  tuneLength = 5
+)
+predicted.classes.EU.Radial <- model.EU.Radial %>% predict(test.data)
+RSE.EU.Radial <- mean(sqrt((predicted.classes.EU.Radial - test.data$EU_Sales)^2))
+```
+
+Linear
+```{r message=FALSE, warning=FALSE}
+model.EU.Linear <- train(
+  EU_Sales ~., data = train.data, method="svmLinear",
+  trControl = trainControl("cv", number = 4),
+  preProcess = c("center", "scale"),
+  tuneLength = 5
+)
+predicted.classes.EU.Linear <- model.EU.Linear %>% predict(test.data)
+RSE.EU.Linear <- mean(sqrt((predicted.classes.EU.Linear - test.data$EU_Sales)^2))
+```
+
+
+
+### North America Sales
+
+Radial
+```{r message=FALSE, warning=FALSE}
+model.NA.Radial <- train(
+  NA_Sales ~., data = train.data, method="svmRadial",
+  trControl = trainControl("cv", number = 4),
+  preProcess = c("center", "scale"),
+  tuneLength = 5
+)
+predicted.classes.NA.Radial <- model.NA.Radial %>% predict(test.data)
+RSE.NA.Radial <- mean(sqrt((predicted.classes.NA.Radial - test.data$NA_Sales)^2))
+```
+
+Linear
+```{r message=FALSE, warning=FALSE}
+model.NA.Linear <- train(
+  NA_Sales ~., data = train.data, method="svmLinear",
+  trControl = trainControl("cv", number = 4),
+  preProcess = c("center", "scale"),
+  tuneLength = 5
+)
+predicted.classes.NA.Linear <- model.NA.Linear %>% predict(test.data)
+RSE.NA.Linear <- mean(sqrt((predicted.classes.NA.Linear - test.data$NA_Sales)^2))
+```
+
+
+
+### Other Sales
+
+Radial
+```{r message=FALSE, warning=FALSE}
+model.other.Radial <- train(
+  Other_Sales ~., data = train.data, method="svmRadial",
+  trControl = trainControl("cv", number = 4),
+  preProcess = c("center", "scale"),
+  tuneLength = 5
+)
+predicted.classes.other.Radial <- model.other.Radial %>% predict(test.data)
+RSE.other.Radial <- mean(sqrt((predicted.classes.other.Radial - test.data$Other_Sales)^2))
+```
+
+Linear
+```{r message=FALSE, warning=FALSE}
+model.other.Linear <- train(
+  Other_Sales ~., data = train.data, method="svmLinear",
+  trControl = trainControl("cv", number = 4),
+  preProcess = c("center", "scale"),
+  tuneLength = 5
+)
+predicted.classes.other.Linear <- model.other.Linear %>% predict(test.data)
+RSE.other.Linear <- mean(sqrt((predicted.classes.other.Linear - test.data$Other_Sales)^2))
+```
+
+
+
+## Plot of Sales model performance
+
+
+```{r message=FALSE, warning=FALSE}
+radial.RSE <- c(RSE.JP.Radial, RSE.EU.Radial, RSE.NA.Radial, RSE.other.Radial)
+linear.RSE <- c(RSE.JP.Linear, RSE.EU.Linear, RSE.NA.Linear, RSE.other.Linear)
+df.RSE <- data.frame(RSE = c(radial.RSE, linear.RSE),
+                 Region = rep(c("JP", "EU", "NA", "Other"), 2),
+                 Model = rep(c("Radial", "Linear"), each = 4))
+ggplot(df.RSE, aes(x = Region, y = RSE, fill = Model)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7), width=0.6) +
+  scale_fill_manual(values = c("red", "blue")) +
+  labs(title = "Comparison of RSE for Radial and Linear Models by Region")
+
+```
+
+***
+
+## Looking for correlations between sales and columns previously eliminated due to na.values
+
+Retrieved the full table from the database file and removed all incomplete rows, and printing the count showed that there were over 6000 video games with no NA values. While this is not enough to accurately impute the missing values, it gives us plenty of data to work with for exploring correlations between columns previously removed for having too many NA values, and possibly incorporate these columns into a predictive model. However, at first glance, none of these variables seem to be related to Global Sales.
+
+```{r message=FALSE, warning=FALSE}
+df_full <- read_csv("Video_Games.csv")
+df_na.rm <- df_full %>%
+  filter(complete.cases(.))
+
+ggplot(data = df_na.rm) +
+  geom_point(mapping=aes(x=Critic_Score, y=Global_Sales)) +
+  geom_smooth(mapping=aes(x=Critic_Score, y=Global_Sales))
+ggplot(data = df_na.rm) +
+  geom_point(mapping=aes(x=Critic_Count, y=Global_Sales)) +
+  geom_smooth(mapping=aes(x=Critic_Count, y=Global_Sales))
+ggplot(data = df_na.rm) +
+  geom_point(mapping=aes(x=User_Score, y=Global_Sales)) +
+  geom_smooth(mapping=aes(x=User_Score, y=Global_Sales))
+ggplot(data = df_na.rm) +
+  geom_point(mapping=aes(x=User_Count, y=Global_Sales)) +
+  geom_smooth(mapping=aes(x=User_Count, y=Global_Sales))
+```
+
+
+
+
+      Genre
+      
+Here we predict Genre. 
+
+This first model fits Genre as a function of all the other variables in the data set. We do this with 10-fold cross validation as to find the best fitting parameters for the model. Our goal with this model was to figure out what the best variables for predicting Genre are, so that in our second model, we have a simpler model with hopefully comparable performance.
+```{r message=FALSE, warning=FALSE}
+library(xgboost)
+library(caret)
+
+xgBoost <- train(
+   Genre ~ ., data = train, method = "xgbTree",
+   trControl = trainControl("cv", number = 2)
+)
+
+predicted.classes2 <- xgBoost %>% predict(test)
+observed.classes <- test$Genre
+
+print(mean(predicted.classes2 == observed.classes))
+
+print(mean(predicted.classes2 != observed.classes))
+```
+
+This is the important step in this idea, to test what variables were important in testing Genre. The top ones are clear: Rating, Platform, Critic_Score, Critic_Count, Year_of_Release, NA_Sales, User_Count, and User_Score
+```{r}
+varImp(xgBoost)
+```
+
+
+
+Our first model uses xgboost to do so, with only it's more significantly related variables as predictors. These ended up being Platform, Year_of_Release, Critic_Score, User_Score, and Rating.
+```{r message=FALSE, warning=FALSE}
+trainXGBImproved <- train %>%
+   select(Genre, Rating, Critic_Score, Critic_Count, Year_of_Release, NA_Sales, User_Count, User_Score)
+
+
+testXGBImproved <- test %>%
+   select(Genre, Rating, Critic_Score, Critic_Count, Year_of_Release, NA_Sales, User_Count, User_Score)
+
+xgBoost2 <- train(
+  Genre ~ ., data = testXGBImproved, method = "xgbTree",
+  trControl = trainControl("cv", number = 10)
+)
+
+predicted.classes2 <- xgBoost2 %>% predict(testXGBImproved)
+observed.classes <- testXGBImproved$Genre
+
+print(mean(predicted.classes2 == observed.classes))
+
+print(mean(predicted.classes2 != observed.classes))
+```
+
+```{r}
+conf <- confusionMatrix(predicted.classes2, observed.classes)
+conf
+```
+
+
+
+Result:
+
+Now looking at SVM for predicting Genre
+```{r}
+train$Genre <- as.factor(as.character(train$Genre))
+test$Genre <- as.factor(as.character(test$Genre))
+
+model <- train(
+  Genre ~ Platform + Year_of_Release + Critic_Score + User_Score + Rating, data = train, method = "svmRadial",
+  trControl = trainControl("cv", number = 10)
+)
+
+predicted.classes <- model %>% predict(test)
+observed.classes <- test$Genre
+
+accuracy <- mean(predicted.classes == observed.classes)
+accuracy
+
+error <- mean(predicted.classes != observed.classes)
+error
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
